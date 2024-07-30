@@ -84,7 +84,8 @@ def get_cli_args(docstring: str, version: str) -> Args:
     )
     parser.add_argument("--del",
         help = "Delete files at the destination that are not in the source",
-        action = "store_true",
+        action = argparse.BooleanOptionalAction,
+        default = True,
         dest = "delete"
     )
     parser.add_argument("--delete-excluded",

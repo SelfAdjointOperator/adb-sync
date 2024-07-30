@@ -1,4 +1,5 @@
 from typing import Iterable, Iterator, List, NoReturn, Tuple
+import posixpath
 import logging
 import os
 import re
@@ -94,7 +95,7 @@ class AndroidFileSystem(FileSystem):
 
     def line_not_captured(self, line: str) -> NoReturn:
         logging.critical("ADB line not captured")
-        logging_fatal(line)
+        logging_fatal(line, force_exit = True)
 
     def test_connection(self):
         for line in self.adb_shell([":"]):
@@ -186,14 +187,14 @@ class AndroidFileSystem(FileSystem):
             self.line_not_captured(line)
 
     def join(self, base: str, leaf: str) -> str:
-        return os.path.join(base, leaf).replace("\\", "/") # for Windows
+        return posixpath.join(base, leaf)
 
     def split(self, path: str) -> Tuple[str, str]:
-        head, tail = os.path.split(path)
-        return head.replace("\\", "/"), tail # for Windows
+        head, tail = posixpath.split(path)
+        return head, tail
 
     def normpath(self, path: str) -> str:
-        return os.path.normpath(path).replace("\\", "/")
+        return posixpath.normpath(path)
 
     def push_file_here(self, source: str, destination: str, show_progress: bool = False) -> None:
         if show_progress:
@@ -205,3 +206,9 @@ class AndroidFileSystem(FileSystem):
             }
         if subprocess.call(self.adb_arguments + ["push", source, destination], **kwargs_call):
             logging_fatal("Non-zero exit code from adb push")
+
+    def convert_invalid_file_name(self, path_destination: str) -> str:
+        return path_destination  # no implement on other system
+
+    def validate_args_path(self, path: str) -> str:
+        return path              # no implement on other system

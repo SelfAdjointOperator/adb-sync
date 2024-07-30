@@ -2,7 +2,7 @@
 
 """Sync files between a computer and an Android device"""
 
-__version__ = "1.4.0"
+__version__ = "1.4.1"
 
 from typing import List, Tuple, Union
 import logging
@@ -28,6 +28,7 @@ class FileSyncer():
         path_join_function_source,
         path_join_function_destination,
         folder_file_overwrite_error: bool = True,
+        delete_args: bool = True,
         ) -> Tuple[
             Union[dict, Tuple[int, int], None], # delete
             Union[dict, Tuple[int, int], None], # copy
@@ -85,7 +86,8 @@ class FileSyncer():
                             destination_exclude_patterns,
                             path_join_function_source,
                             path_join_function_destination,
-                            folder_file_overwrite_error = folder_file_overwrite_error
+                            folder_file_overwrite_error = folder_file_overwrite_error,
+                            delete_args = delete_args
                         )
             else:
                 raise NotImplementedError
@@ -112,13 +114,15 @@ class FileSyncer():
                     unaccounted_destination = None
                     excluded_destination = destination
                 else:
-                    if source[1] > destination[1]:
+                    if source[1] > destination[1] and delete_args:
                         delete = destination
                         copy = source
                         excluded_source = None
                         unaccounted_destination = None
                         excluded_destination = None
                     else:
+                        if not delete_args:
+                            logging.info(f"--no-del: Newer file of {path_source} won't be updated")
                         delete = None
                         copy = None
                         excluded_source = None
@@ -139,7 +143,7 @@ class FileSyncer():
                     excluded_destination = {".": None}
                     if folder_file_overwrite_error:
                         logging.critical(f"Refusing to overwrite directory {path_destination} with file {path_source}")
-                        logging_fatal("Use --force if you are sure!")
+                        logging_fatal("Use --force if you are sure!", force_exit = True)
                     else:
                         logging.warning(f"Overwriting directory {path_destination} with file {path_source}")
             else:
@@ -169,7 +173,8 @@ class FileSyncer():
                             destination_exclude_patterns,
                             path_join_function_source,
                             path_join_function_destination,
-                            folder_file_overwrite_error = folder_file_overwrite_error
+                            folder_file_overwrite_error = folder_file_overwrite_error,
+                            delete_args = delete_args
                         )
             elif isinstance(destination, tuple):
                 if exclude:
@@ -194,11 +199,12 @@ class FileSyncer():
                             destination_exclude_patterns,
                             path_join_function_source,
                             path_join_function_destination,
-                            folder_file_overwrite_error = folder_file_overwrite_error
+                            folder_file_overwrite_error = folder_file_overwrite_error,
+                            delete_args = delete_args
                         )
                     if folder_file_overwrite_error:
                         logging.critical(f"Refusing to overwrite file {path_destination} with directory {path_source}")
-                        logging_fatal("Use --force if you are sure!")
+                        logging_fatal("Use --force if you are sure!", force_exit = True)
                     else:
                         logging.warning(f"Overwriting file {path_destination} with directory {path_source}")
                 excluded_destination = None
@@ -225,7 +231,8 @@ class FileSyncer():
                             destination_exclude_patterns,
                             path_join_function_source,
                             path_join_function_destination,
-                            folder_file_overwrite_error = folder_file_overwrite_error
+                            folder_file_overwrite_error = folder_file_overwrite_error,
+                            delete_args = delete_args
                         )
                     destination.pop(".")
                     for key, value in destination.items():
@@ -237,7 +244,8 @@ class FileSyncer():
                             destination_exclude_patterns,
                             path_join_function_source,
                             path_join_function_destination,
-                            folder_file_overwrite_error = folder_file_overwrite_error
+                            folder_file_overwrite_error = folder_file_overwrite_error,
+                            delete_args = delete_args
                         )
             else:
                 raise NotImplementedError
@@ -307,7 +315,7 @@ class FileSyncer():
             perror(path_source, e, FATAL)
 
         if stat.S_ISLNK(lstat_destination.st_mode):
-            logging_fatal("Destination is a symlink. Not sure what to do. See GitHub issue #8")
+            logging_fatal("Destination is a symlink. Not sure what to do. See GitHub issue #8", force_exit = True)
 
         if not stat.S_ISDIR(lstat_destination.st_mode):
             return path_source, path_destination
@@ -327,7 +335,9 @@ class FileSyncer():
             )
         return path_source, path_destination
 
+
 def main():
+    # TODO implement allow file override flag (default is True, except when use --no-del value will be False.)
     args = get_cli_args(__doc__, __version__)
 
     setup_root_logger(
@@ -352,7 +362,7 @@ def main():
     try:
         fs_android.test_connection()
     except BrokenPipeError:
-        logging_fatal("Connection test failed")
+        logging_fatal("Connection test failed", force_exit = True)
 
     if args.direction == "push":
         path_source = args.direction_push_local
@@ -360,10 +370,11 @@ def main():
         path_destination = args.direction_push_android
         fs_destination = fs_android
     else:
-        path_source = args.direction_pull_android
+        fs_local.setup_invalid_name_check()
         fs_source = fs_android
-        path_destination = args.direction_pull_local
+        path_source = fs_source.validate_args_path(args.direction_pull_android)
         fs_destination = fs_local
+        path_destination = fs_destination.validate_args_path(args.direction_pull_local)
 
     path_source, path_destination = FileSyncer.paths_to_fixed_destination_paths(path_source, fs_source, path_destination, fs_destination)
 
@@ -412,7 +423,8 @@ def main():
         excludePatterns,
         fs_source.join,
         fs_destination.join,
-        folder_file_overwrite_error = not args.dry_run and not args.force
+        folder_file_overwrite_error = not args.dry_run and not args.force,
+        delete_args = args.delete
     )
 
     tree_delete                  = FileSyncer.prune_tree(tree_delete)
@@ -470,12 +482,13 @@ def main():
     logging.info("SYNCING")
     logging.info("")
 
-    if tree_delete is not None:
-        logging.info("Deleting delete tree")
-        fs_destination.remove_tree(path_destination, tree_delete, dry_run = args.dry_run)
-    else:
-        logging.info("Empty delete tree")
-    logging.info("")
+    if args.delete:
+        if tree_delete is not None:
+            logging.info("Deleting delete tree")
+            fs_destination.remove_tree(path_destination, tree_delete, dry_run = args.dry_run)
+        else:
+            logging.info("Empty delete tree")
+        logging.info("")
 
     if args.delete_excluded and args.delete:
         if tree_excluded_destination is not None:
@@ -513,6 +526,7 @@ def main():
             tree_copy,
             path_destination,
             fs_source,
+            fs_destination,
             dry_run = args.dry_run,
             show_progress = args.show_progress
         )

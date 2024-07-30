@@ -59,11 +59,13 @@ def setup_root_logger(
     console_handler.setFormatter(formatter_class(fmt = messagefmt_to_use, datefmt = datefmt))
     root_logger.addHandler(console_handler)
 
-def logging_fatal(message, log_stack_info: bool = True, exit_code: int = 1):
+def logging_fatal(message, log_stack_info: bool = True, exit_code: int = 1, force_exit: bool = False):
+    # TODO collect all fatal errors, and show all of it when program terminated. Useful for tracking files that has problems.
     logging.critical(message)
     logging.debug("Stack Trace", stack_info = log_stack_info)
-    logging.critical("Exiting")
-    raise SystemExit(exit_code)
+    if force_exit:
+        logging.critical("Exiting")
+        raise SystemExit(exit_code)
 
 def log_tree(title, tree, finals = None, log_leaves_types = True, logging_level = logging.INFO):
     """Log tree nicely if it is a dictionary.
@@ -94,6 +96,6 @@ def perror(s: Union[str, Any], e: Exception, logging_level: int = logging.ERROR)
     strerror = e.strerror if (isinstance(e, OSError) and e.strerror is not None) else e.__class__.__name__
     msg = f"{s}{': ' if s else ''}{strerror}"
     if logging_level == FATAL:
-        logging_fatal(msg)
+        logging_fatal(msg, force_exit = True)
     else:
         logging.log(logging_level, msg)
